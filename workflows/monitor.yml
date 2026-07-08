@@ -1,0 +1,37 @@
+name: Market Monitor (7AM - Midnight)
+
+on:
+  schedule:
+    # 매일 아침 7시부터 자정까지 5분마다 실행 (한국 시간 기준)
+    - cron: '*/5 22-13 * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4 apscheduler
+    
+    - name: Run monitor
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: |
+        python monitor_v2.py
+    
+    - name: Upload state file
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: monitored-posts
+        path: monitored_posts.json
+        retention-days: 30
