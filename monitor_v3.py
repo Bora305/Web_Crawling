@@ -5,6 +5,8 @@ import json
 import os
 import config
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import random
 
 DISCORD_WEBHOOK_URL = config.DISCORD_WEBHOOK_URL
 KEYWORDS = config.KEYWORDS
@@ -12,12 +14,12 @@ CHECK_INTERVAL = config.CHECK_INTERVAL
 SITES = config.SITES
 STATE_FILE = "monitored_posts.json"
 
-# 다양한 User-Agent 목록 (차단 우회)
 USER_AGENTS = [
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
-    'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/91.0.4472.120',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
 ]
 
 def load_state():
@@ -53,16 +55,36 @@ def send_discord_alert(site_name, title, url, keyword):
         print(f"❌ 알림 전송 실패: {e}")
         return False
 
+def get_session():
+    """세션 객체 생성 (쿠키, 연결 풀 유지)"""
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    })
+    return session
+
 def scrape_quasarzone():
     """퀘이사존 크롤링"""
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         print("    🔄 퀘이사존 크롤링 중...")
+        session = get_session()
 
-        resp = requests.get(
+        resp = session.get(
             SITES["quasarzone"]["url"],
-            headers=headers,
-            timeout=8,
+            timeout=10,
+            allow_redirects=True,
+            verify=True,
         )
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -74,7 +96,7 @@ def scrape_quasarzone():
             print("    ⚠️  선택자 미작동, 대체 검색 중...")
             elements = soup.find_all('a', limit=30)
 
-        for elem in elements[:20]:
+        for elem in elements[:25]:
             title = elem.get_text(strip=True)
             link = elem.get('href', '')
 
@@ -93,41 +115,47 @@ def scrape_quasarzone():
         return "quasarzone", posts
 
     except Exception as e:
-        print(f"    ❌ 퀘이사존 오류: {str(e)[:50]}")
+        print(f"    ❌ 퀘이사존 오류: {str(e)[:60]}")
         return "quasarzone", []
 
 def scrape_coolenjoy():
-    """쿨엔조이 크롤링 (재시도 로직)"""
-    import random
+    """쿨엔조이 크롤링 (재시도 로직 강화)"""
 
     for attempt in range(3):
         try:
-            headers = {
-                'User-Agent': random.choice(USER_AGENTS),
-                'Accept-Language': 'ko-KR,ko;q=0.9',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Referer': 'https://coolenjoy.net/',
-            }
+            timeout = 8 - attempt  # 1차: 8초, 2차: 7초, 3차: 6초
+            print(f"    🔄 쿨엔조이 크롤링 중 (시도 {attempt+1}/3, {timeout}초)...")
 
-            timeout = 6 - (attempt * 2)  # 1차: 6초, 2차: 4초, 3차: 2초
-            print(f"    🔄 쿨엔조이 크롤링 중 (시도 {attempt+1}/3, {timeout}초 타임아웃)...")
+            session = get_session()
 
-            resp = requests.get(
+            # 1단계: 사이트 방문 (쿠키 받기)
+            session.get("https://coolenjoy.net/", timeout=5, verify=True)
+
+            # 2단계: 실제 페이지 요청
+            resp = session.get(
                 SITES["coolenjoy"]["url"],
-                headers=headers,
                 timeout=timeout,
+                allow_redirects=True,
+                verify=True,
             )
             resp.encoding = 'utf-8'
             soup = BeautifulSoup(resp.text, 'html.parser')
 
             posts = []
+
+            # 1순위: 특정 선택자
             elements = soup.select("a.na-subject")
 
-            if not elements:
-                print("    ⚠️  선택자 미작동, 모든 a 태그 검색 중...")
-                elements = soup.find_all('a', limit=40)
+            # 2순위: 다양한 클래스명 검색
+            if len(elements) < 3:
+                print("    ⚠️  선택자 미작동, 광범위 검색 중...")
+                elements = soup.select("a[class*='subject']")
 
-            for elem in elements[:20]:
+            # 3순위: 모든 링크 검색
+            if len(elements) < 3:
+                elements = soup.find_all('a', limit=50)
+
+            for elem in elements[:30]:
                 title = elem.get_text(strip=True)
                 link = elem.get('href', '')
 
@@ -142,20 +170,33 @@ def scrape_coolenjoy():
 
                 posts.append({"title": title, "link": link, "site": "coolenjoy"})
 
-            print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
-            return "coolenjoy", posts
+            if len(posts) > 0:
+                print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
+                return "coolenjoy", posts
+            else:
+                if attempt < 2:
+                    print(f"    ⏱️  0개 수집, 재시도 중...")
+                    time.sleep(1)
+                    continue
 
         except requests.Timeout:
             if attempt < 2:
                 print(f"    ⏱️  타임아웃, 재시도 중...")
+                time.sleep(1)
                 continue
             else:
                 print(f"    ❌ 쿨엔조이 타임아웃 (3회 재시도 실패)")
                 return "coolenjoy", []
         except Exception as e:
-            print(f"    ❌ 쿨엔조이 오류: {str(e)[:50]}")
-            return "coolenjoy", []
+            if attempt < 2:
+                print(f"    ⚠️  오류 발생, 재시도 중: {str(e)[:40]}")
+                time.sleep(1)
+                continue
+            else:
+                print(f"    ❌ 쿨엔조이 오류: {str(e)[:60]}")
+                return "coolenjoy", []
 
+    print(f"    ❌ 쿨엔조이 3회 모두 실패")
     return "coolenjoy", []
 
 def check_keywords(title, keywords):
@@ -172,7 +213,6 @@ def monitor_task():
     alert_count = 0
     all_results = {}
 
-    # 병렬 처리로 속도 최적화
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {}
 
@@ -186,7 +226,6 @@ def monitor_task():
             site_name, posts = future.result()
             all_results[site_name] = posts
 
-    # 결과 처리
     for site_name, posts in all_results.items():
         print(f"\n  🌐 {site_name} 결과 처리 중...")
 
@@ -220,7 +259,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 웹페이지 모니터링 프로그램 v3 (최적화)")
+    print("🌐 웹페이지 모니터링 프로그램 v3.2 (세션 유지 + 강화)")
     print("="*60)
     print(f"📌 감시 키워드: {', '.join(KEYWORDS)}")
     print(f"🌐 사이트 수: {len(SITES)}")
