@@ -4,13 +4,8 @@ from datetime import datetime
 import json
 import os
 import config
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+import asyncio
+from playwright.async_api import async_playwright
 
 DISCORD_WEBHOOK_URL = config.DISCORD_WEBHOOK_URL
 KEYWORDS = config.KEYWORDS
@@ -51,65 +46,8 @@ def send_discord_alert(site_name, title, url, keyword):
         print(f"❌ 알림 전송 실패: {e}")
         return False
 
-def scrape_site_selenium(site_name, site_config):
-    """Selenium을 사용한 크롤링"""
-    driver = None
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")  # 백그라운드 실행
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        
-        print(f"    {site_name} 크롤링 중 (Selenium)...")
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.get(site_config["url"])
-        
-        # 페이지 로드 대기
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
-        )
-        
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        
-        posts = []
-        elements = soup.select("a.na-subject")
-        
-        if len(elements) == 0:
-            elements = soup.find_all('a', limit=30)
-        
-        for elem in elements[:20]:
-            title = elem.get_text(strip=True)
-            link = elem.get('href', '')
-            
-            if len(title) < 5:
-                continue
-            
-            if not link:
-                continue
-            
-            if link.startswith('/'):
-                link = "https://coolenjoy.net" + link
-            
-            if any(p['link'] == link for p in posts):
-                continue
-            
-            posts.append({"title": title, "link": link, "site": site_name})
-        
-        print(f"    ✅ {site_name}: {len(posts)}개 게시물 수집")
-        return site_name, posts
-        
-    except Exception as e:
-        print(f"    ❌ {site_name} 오류: {str(e)[:50]}")
-        return site_name, []
-        
-    finally:
-        if driver:
-            driver.quit()
-
 def scrape_site_requests(site_name, site_config):
-    """일반 requests 크롤링 (빠름)"""
+    """일반 requests 크롤링 (quasarzone용)"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -125,10 +63,7 @@ def scrape_site_requests(site_name, site_config):
         soup = BeautifulSoup(resp.text, 'html.parser')
         
         posts = []
-        elements = soup.select("a.subject_link")
-        
-        if len(elements) == 0:
-            elements = soup.find_all('a', limit=30)
+        elements = soup.select(site_config["title_selector"])
         
         for elem in elements[:20]:
             title = elem.get_text(strip=True)
@@ -155,6 +90,54 @@ def scrape_site_requests(site_name, site_config):
         print(f"    ❌ {site_name} 오류: {str(e)[:50]}")
         return site_name, []
 
+async def scrape_site_playwright(site_name, site_config):
+    """Playwright를 사용한 크롤링 (coolenjoy용)"""
+    try:
+        async with async_playwright() as p:
+            print(f"    {site_name} 크롤링 중 (Playwright)...")
+            
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
+            
+            await page.goto(site_config["url"], timeout=15000)
+            await page.wait_for_timeout(2000)  # 2초 대기
+            
+            content = await page.content()
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            posts = []
+            elements = soup.select(site_config["title_selector"])
+            
+            if len(elements) == 0:
+                elements = soup.find_all('a', limit=30)
+            
+            for elem in elements[:20]:
+                title = elem.get_text(strip=True)
+                link = elem.get('href', '')
+                
+                if len(title) < 5:
+                    continue
+                
+                if not link:
+                    continue
+                
+                if link.startswith('/'):
+                    link = "https://coolenjoy.net" + link
+                
+                if any(p['link'] == link for p in posts):
+                    continue
+                
+                posts.append({"title": title, "link": link, "site": site_name})
+            
+            await browser.close()
+            
+            print(f"    ✅ {site_name}: {len(posts)}개 게시물 수집")
+            return site_name, posts
+            
+    except Exception as e:
+        print(f"    ❌ {site_name} 오류: {str(e)[:50]}")
+        return site_name, []
+
 def check_keywords(title, keywords):
     for keyword in keywords:
         if keyword.lower() in title.lower():
@@ -169,14 +152,14 @@ def monitor_task():
     alert_count = 0
     all_results = {}
     
-    # quasarzone: requests 사용 (빠름)
-    # coolenjoy: Selenium 사용 (JS 렌더링)
+    # quasarzone: requests 사용
     if "quasarzone" in SITES:
         site_name, posts = scrape_site_requests("quasarzone", SITES["quasarzone"])
         all_results[site_name] = posts
     
+    # coolenjoy: Playwright 사용
     if "coolenjoy" in SITES:
-        site_name, posts = scrape_site_selenium("coolenjoy", SITES["coolenjoy"])
+        site_name, posts = asyncio.run(scrape_site_playwright("coolenjoy", SITES["coolenjoy"]))
         all_results[site_name] = posts
     
     # 결과 처리
@@ -213,7 +196,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 웹페이지 모니터링 프로그램 v2 (Selenium 적용)")
+    print("🌐 웹페이지 모니터링 프로그램 v2 (Playwright 적용)")
     print("="*60)
     print(f"📌 감시 키워드: {', '.join(KEYWORDS)}")
     
