@@ -5,8 +5,7 @@ import os
 
 # ===== 필수 설정 =====
 
-# Discord 웹훅 URL (필수!)
-# Discord 서버 → 채널 우클릭 → 웹훅 → URL 복사
+# Discord 웹훅 URL (GitHub Secrets에서 로드됨)
 DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK', '')
 
 # 감시할 키워드 (하나 이상 필수)
@@ -28,13 +27,8 @@ SITES = {
     },
     "coolenjoy": {
         "url": "https://coolenjoy.net/bbs/mart2",
-        "title_selector": "a.title",
+        "title_selector": "a.na-subject",  # ← coolenjoy 정확한 선택자
     },
-    # 추가 예시:
-    # "naver_cafe": {
-    #     "url": "https://cafe.naver.com/ArticleList.nhn?search.clubid=...",
-    #     "title_selector": "a.article",
-    # }
 }
 
 # ===== 선택 설정 =====
