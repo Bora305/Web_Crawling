@@ -6,14 +6,11 @@ import os
 import config
 import time
 
-# ===== 설정 로드 =====
 DISCORD_WEBHOOK_URL = config.DISCORD_WEBHOOK_URL
 KEYWORDS = config.KEYWORDS
 CHECK_INTERVAL = config.CHECK_INTERVAL
 SITES = config.SITES
 STATE_FILE = "monitored_posts.json"
-
-# ===== 함수 =====
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -49,7 +46,7 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def scrape_site(site_name, site_config):
-    """개선된 크롤링 - 여러 선택자 시도"""
+    """개선된 크롤링"""
     max_retries = 2
     
     for attempt in range(max_retries):
@@ -70,20 +67,18 @@ def scrape_site(site_name, site_config):
             
             posts = []
             
-            # 주 선택자로 시도
-            elements = soup.select(site_config["title_selector"])
+            # coolenjoy.net 특화 선택자
+            elements = soup.select("a.na-subject")
             
-            # 선택자가 작동하지 않으면 대체 선택자 시도
             if len(elements) == 0:
-                print(f"    ⚠️  주 선택자 작동 안 함, 대체 선택자 시도...")
-                # 모든 링크 찾기
+                print(f"    ⚠️  na-subject 선택자 작동 안 함, 대체 선택자 시도...")
                 elements = soup.find_all('a', limit=30)
             
             for elem in elements[:20]:
                 title = elem.get_text(strip=True)
                 link = elem.get('href', '')
                 
-                # 제목이 너무 짧으면 스킵 (메뉴 등)
+                # 제목이 너무 짧으면 스킵
                 if len(title) < 5:
                     continue
                 
@@ -93,8 +88,7 @@ def scrape_site(site_name, site_config):
                 
                 # 상대 URL을 절대 URL로 변환
                 if link.startswith('/'):
-                    base = site_config["url"].split('/bbs')[0] if '/bbs' in site_config["url"] else site_config["url"]
-                    link = base + link
+                    link = "https://coolenjoy.net" + link
                 
                 # 중복 제거
                 if any(p['link'] == link for p in posts):
@@ -163,7 +157,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 웹페이지 모니터링 프로그램 v2")
+    print("🌐 웹페이지 모니터링 프로그램 v2 (coolenjoy 최적화)")
     print("="*60)
     print(f"📌 감시 키워드: {', '.join(KEYWORDS)}")
     print(f"⏲️  확인 간격: {CHECK_INTERVAL}분")
