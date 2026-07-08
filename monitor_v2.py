@@ -49,7 +49,7 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def scrape_site(site_name, site_config):
-    """재시도 로직이 있는 크롤링"""
+    """개선된 크롤링 - 여러 선택자 시도"""
     max_retries = 2
     
     for attempt in range(max_retries):
@@ -57,40 +57,65 @@ def scrape_site(site_name, site_config):
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
-            # timeout을 30초로 설정 (충분히 길게)
+            
+            print(f"    시도 {attempt + 1}/{max_retries}...")
             resp = requests.get(
                 site_config["url"], 
                 headers=headers, 
-                timeout=30
+                timeout=30,
+                allow_redirects=True
             )
             resp.encoding = 'utf-8'
             soup = BeautifulSoup(resp.text, 'html.parser')
             
             posts = []
-            for elem in soup.select(site_config["title_selector"])[:15]:
+            
+            # 주 선택자로 시도
+            elements = soup.select(site_config["title_selector"])
+            
+            # 선택자가 작동하지 않으면 대체 선택자 시도
+            if len(elements) == 0:
+                print(f"    ⚠️  주 선택자 작동 안 함, 대체 선택자 시도...")
+                # 모든 링크 찾기
+                elements = soup.find_all('a', limit=30)
+            
+            for elem in elements[:20]:
                 title = elem.get_text(strip=True)
                 link = elem.get('href', '')
                 
+                # 제목이 너무 짧으면 스킵 (메뉴 등)
+                if len(title) < 5:
+                    continue
+                
+                # 링크가 없으면 스킵
+                if not link:
+                    continue
+                
+                # 상대 URL을 절대 URL로 변환
                 if link.startswith('/'):
                     base = site_config["url"].split('/bbs')[0] if '/bbs' in site_config["url"] else site_config["url"]
                     link = base + link
                 
-                if title and link:
-                    posts.append({"title": title, "link": link, "site": site_name})
+                # 중복 제거
+                if any(p['link'] == link for p in posts):
+                    continue
+                
+                posts.append({"title": title, "link": link, "site": site_name})
             
+            print(f"    ✅ 성공: {len(posts)}개 게시물 수집")
             return posts
             
         except requests.exceptions.Timeout:
-            print(f"  ⏱️  {site_name} 타임아웃 (시도 {attempt + 1}/{max_retries})")
+            print(f"    ⏱️  타임아웃 (시도 {attempt + 1}/{max_retries})")
             if attempt < max_retries - 1:
-                time.sleep(2)  # 2초 기다렸다가 재시도
+                time.sleep(2)
                 continue
             else:
-                print(f"  ❌ {site_name} 최종 실패")
+                print(f"    ❌ 최종 실패")
                 return []
                 
         except Exception as e:
-            print(f"❌ {site_name} 오류: {e}")
+            print(f"    ❌ 오류: {str(e)[:50]}")
             return []
 
 def check_keywords(title, keywords):
@@ -102,14 +127,13 @@ def check_keywords(title, keywords):
 def monitor_task():
     state = load_state()
     now = datetime.now().strftime("%m-%d %H:%M:%S")
-    print(f"\n[{now}] 🔍 모니터링 시작...")
+    print(f"\n[{now}] 🔍 모니터링 시작...\n")
     
     alert_count = 0
     
     for site_name, site_config in SITES.items():
-        print(f"\n  🌐 {site_name} 크롤링 중...")
+        print(f"  🌐 {site_name}")
         posts = scrape_site(site_name, site_config)
-        print(f"  ✅ {site_name}: {len(posts)}개 게시물 수집")
         
         for post in posts:
             post_id = f"{site_name}_{post['link']}"
@@ -118,23 +142,24 @@ def monitor_task():
             
             keyword = check_keywords(post["title"], KEYWORDS)
             if keyword:
-                print(f"  🎯 발견: [{keyword}] {post['title'][:50]}")
+                print(f"    🎯 발견: [{keyword}] {post['title'][:40]}...")
                 
                 if send_discord_alert(site_name, post["title"], post["link"], keyword):
-                    print(f"     ✅ Discord 알림 전송됨")
+                    print(f"       ✅ Discord 알림 전송됨")
                 else:
-                    print(f"     ⚠️  Discord 알림 전송 실패")
+                    print(f"       ⚠️  Discord 알림 전송 실패")
                 
                 state["posts"].append(post_id)
                 alert_count += 1
     
+    print(f"\n📊 결과:")
     if alert_count == 0:
-        print(f"\n📊 새로운 키워드 항목 없음")
+        print(f"  새로운 키워드 항목 없음")
     else:
-        print(f"\n📊 총 {alert_count}개 항목 감지 및 알림 전송")
+        print(f"  총 {alert_count}개 항목 감지 및 알림 전송!")
     
     save_state(state)
-    print(f"[{now}] ✅ 모니터링 완료")
+    print(f"\n[{now}] ✅ 모니터링 완료")
 
 if __name__ == "__main__":
     print("="*60)
@@ -144,5 +169,4 @@ if __name__ == "__main__":
     print(f"⏲️  확인 간격: {CHECK_INTERVAL}분")
     print(f"🌐 사이트 수: {len(SITES)}")
     
-    # GitHub Actions에서 한 번만 실행
     monitor_task()
