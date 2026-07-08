@@ -1,1 +1,1 @@
-requests beautifulsoup4 apscheduler selenium
+requests beautifulsoup4 apscheduler selenium python-dotenv
