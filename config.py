@@ -23,11 +23,11 @@ CHECK_INTERVAL = 5
 SITES = {
     "quasarzone": {
         "url": "https://quasarzone.com/bbs/qb_jijang",
-        "title_selector": "a.subject_link",
+        "title_selector": "a.subject_link",  # 이미 올바름
     },
     "coolenjoy": {
         "url": "https://coolenjoy.net/bbs/mart2",
-        "title_selector": "a.na-subject",  # ← coolenjoy 정확한 선택자
+        "title_selector": "a.na-subject",
     },
 }
 
