@@ -50,7 +50,7 @@ def send_discord_alert(site_name, title, url, keyword):
 def scrape_site(site_name, site_config):
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(site_config["url"], headers=headers, timeout=10)
+        resp = requests.get(site_config["url"], headers=headers, timeout=20)
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
         
