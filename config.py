@@ -1,3 +1,5 @@
+import os
+
 # config.py - 모니터링 설정 파일
 # 이 파일만 수정하면 됨!
 
@@ -5,7 +7,7 @@
 
 # Discord 웹훅 URL (필수!)
 # Discord 서버 → 채널 우클릭 → 웹훅 → URL 복사
-DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL_HERE"
+DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK', '')
 
 # 감시할 키워드 (하나 이상 필수)
 KEYWORDS = [
