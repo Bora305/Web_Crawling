@@ -2,7 +2,7 @@ name: Market Monitor (7AM - Midnight)
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/5 22-13 * * *'
   workflow_dispatch:
 
 jobs:
@@ -19,7 +19,8 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install requests beautifulsoup4 apscheduler selenium python-dotenv
+        pip install requests beautifulsoup4 apscheduler playwright python-dotenv
+        playwright install
     
     - name: Run monitor
       env:
