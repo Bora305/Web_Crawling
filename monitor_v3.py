@@ -32,7 +32,6 @@ def save_state(state):
 
 def send_discord_alert(site_name, title, url, keyword):
     if not DISCORD_WEBHOOK_URL:
-        print(f"⚠️  Discord 웹훅 미설정")
         return False
 
     message = {
@@ -49,21 +48,17 @@ def send_discord_alert(site_name, title, url, keyword):
     try:
         resp = requests.post(DISCORD_WEBHOOK_URL, json=message, timeout=5)
         return resp.status_code == 204
-    except Exception as e:
-        print(f"❌ 알림 전송 실패: {e}")
+    except:
         return False
 
 def get_session():
     session = requests.Session()
     session.headers.update({
         'User-Agent': random.choice(USER_AGENTS),
-        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0',
     })
     return session
 
@@ -84,10 +79,9 @@ def scrape_quasarzone():
         elements = soup.select("a.subject_link")
 
         if not elements:
-            print("    ⚠️  선택자 미작동, 대체 검색 중...")
-            elements = soup.find_all('a', limit=30)
+            elements = soup.find_all('a', limit=40)
 
-        for elem in elements[:25]:
+        for elem in elements[:30]:
             title = elem.get_text(strip=True)
             link = elem.get('href', '')
 
@@ -106,13 +100,13 @@ def scrape_quasarzone():
         return "quasarzone", posts
 
     except Exception as e:
-        print(f"    ❌ 퀘이사존 오류: {str(e)[:60]}")
+        print(f"    ❌ 퀘이사존 오류: {str(e)[:40]}")
         return "quasarzone", []
 
 def scrape_coolenjoy():
     try:
         import cloudscraper
-        print("    🔄 쿨엔조이 크롤링 중 (Cloudflare 우회)...")
+        print("    🔄 쿨엔조이 크롤링 중 (Cloudflare)...")
 
         scraper = cloudscraper.create_scraper()
         resp = scraper.get(SITES["coolenjoy"]["url"], timeout=15)
@@ -143,23 +137,24 @@ def scrape_coolenjoy():
 
             posts.append({"title": title, "link": link, "site": "coolenjoy"})
 
-        print(f"    ✅ 쿨엔조이: {len(posts)}개 수집 (cloudscraper)")
+        print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
         return "coolenjoy", posts
 
     except ImportError:
         print("    ⚠️  cloudscraper 없음, requests 폴백...")
         return scrape_coolenjoy_requests()
     except Exception as e:
-        print(f"    ⚠️  cloudscraper 오류, requests 폴백... ({str(e)[:40]})")
+        print(f"    ⚠️  쿨엔조이 오류, requests 폴백...")
         return scrape_coolenjoy_requests()
 
 def scrape_coolenjoy_requests():
     for attempt in range(3):
         try:
-            timeout = 10 - attempt
-            print(f"    🔄 쿨엔조이 크롤링 중 (requests, 시도 {attempt+1}/3)...")
+            timeout = 12 - attempt
+            print(f"    🔄 쿨엔조이 시도 {attempt+1}/3...")
 
             session = get_session()
+
             try:
                 session.get("https://coolenjoy.net/", timeout=5)
             except:
@@ -198,21 +193,17 @@ def scrape_coolenjoy_requests():
                 posts.append({"title": title, "link": link, "site": "coolenjoy"})
 
             if len(posts) > 0:
-                print(f"    ✅ 쿨엔조이: {len(posts)}개 수집 (requests)")
+                print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
                 return "coolenjoy", posts
             else:
                 if attempt < 2:
-                    print(f"    ⏱️  재시도 중...")
-                    time.sleep(1)
+                    time.sleep(2)
 
         except Exception as e:
             if attempt < 2:
-                print(f"    ⏱️  재시도 중...")
-                time.sleep(1)
-            else:
-                print(f"    ❌ 쿨엔조이 실패")
-                return "coolenjoy", []
+                time.sleep(2)
 
+    print(f"    ❌ 쿨엔조이 실패")
     return "coolenjoy", []
 
 def check_keywords(title, keywords):
@@ -255,30 +246,22 @@ def monitor_task():
                 print(f"    🎯 발견: [{keyword}] {post['title'][:40]}...")
 
                 if send_discord_alert(site_name, post["title"], post["link"], keyword):
-                    print(f"       ✅ Discord 알림 전송됨")
-                else:
-                    print(f"       ⚠️  Discord 알림 전송 실패")
+                    print(f"       ✅ 알림 전송")
 
                 state["posts"].append(post_id)
                 alert_count += 1
 
-    print(f"\n📊 결과:")
-
-    if alert_count == 0:
-        print(f"  새로운 키워드 항목 없음")
-    else:
-        print(f"  총 {alert_count}개 항목 감지 및 알림 전송!")
+    print(f"\n📊 결과: {alert_count}개 감지")
 
     save_state(state)
     now = datetime.now().strftime("%m-%d %H:%M:%S")
-    print(f"\n[{now}] ✅ 모니터링 완료")
+    print(f"[{now}] ✅ 완료")
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 웹페이지 모니터링 프로그램 v3.3")
+    print("🌐 모니터링 v3.3")
     print("="*60)
-    print(f"📌 감시 키워드: {', '.join(KEYWORDS)}")
-    print(f"🌐 사이트 수: {len(SITES)}")
+    print(f"키워드: {', '.join(KEYWORDS)}")
     print()
 
     monitor_task()
