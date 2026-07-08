@@ -108,50 +108,52 @@ def scrape_coolenjoy():
     try:
         print("    🔄 쿨엔조이 크롤링 중...")
         session = get_session()
-
+        
+        # 타임아웃 증가 + SSL 검증 비활성화
         resp = session.get(
             SITES["coolenjoy"]["url"],
-            timeout=10,
+            timeout=15,              # ⭐ 10 → 15초로 증가
             allow_redirects=True,
+            verify=False             # ⭐ SSL 검증 비활성화
         )
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         posts = []
-
+        
         # HTML 텍스트 추출
         full_text = soup.get_text(separator='\n')
         lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-
+        
         # 게시물 찾기: "제목" + "가격" 패턴
         i = 0
         while i < len(lines) - 1:
             current = lines[i]
             next_line = lines[i + 1] if i + 1 < len(lines) else ""
-
+            
             # 가격 판별: "숫자...원" 형식
             is_price = (
                 '원' in next_line and 
                 any(c.isdigit() for c in next_line) and
                 len(next_line) < 50
             )
-
+            
             # 제목 판별
             is_title = (
                 len(current) > 5 and 
                 len(current) < 200 and
                 not any(c.isdigit() for c in current[-5:])
             )
-
+            
             if is_title and is_price:
                 title = current
                 price = next_line
-
+                
                 # 제외 단어
                 if any(skip in title for skip in ['아이디로 검색', '건의함', '로그인', '글쓴이', '페이지', '포인트']):
                     i += 1
                     continue
-
+                
                 # 중복 제거
                 if not any(p['title'] == title for p in posts):
                     posts.append({
@@ -160,18 +162,61 @@ def scrape_coolenjoy():
                         "site": "coolenjoy",
                         "price": price
                     })
-
+                
                 i += 2
                 continue
-
+            
             i += 1
 
         print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
         return "coolenjoy", posts
 
     except Exception as e:
-        print(f"    ❌ 쿨엔조이 오류: {str(e)[:40]}")
-        return "coolenjoy", []
+        print(f"    ⚠️  쿨엔조이 재시도 중...")
+        # 재시도 (2초 대기)
+        time.sleep(2)
+        try:
+            session = get_session()
+            resp = session.get(
+                SITES["coolenjoy"]["url"],
+                timeout=20,
+                allow_redirects=True,
+                verify=False
+            )
+            resp.encoding = 'utf-8'
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            posts = []
+            
+            full_text = soup.get_text(separator='\n')
+            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+            
+            i = 0
+            while i < len(lines) - 1:
+                current = lines[i]
+                next_line = lines[i + 1] if i + 1 < len(lines) else ""
+                
+                is_price = ('원' in next_line and any(c.isdigit() for c in next_line) and len(next_line) < 50)
+                is_title = (len(current) > 5 and len(current) < 200 and not any(c.isdigit() for c in current[-5:]))
+                
+                if is_title and is_price:
+                    title = current
+                    if any(skip in title for skip in ['아이디로 검색', '건의함', '로그인', '글쓴이', '페이지', '포인트']):
+                        i += 1
+                        continue
+                    
+                    if not any(p['title'] == title for p in posts):
+                        posts.append({"title": title, "link": SITES["coolenjoy"]["url"], "site": "coolenjoy"})
+                    i += 2
+                    continue
+                
+                i += 1
+            
+            print(f"    ✅ 쿨엔조이: {len(posts)}개 수집 (재시도)")
+            return "coolenjoy", posts
+        except:
+            print(f"    ❌ 쿨엔조이 실패")
+            return "coolenjoy", []
+
 
 def check_keywords(title, keywords):
     for keyword in keywords:
