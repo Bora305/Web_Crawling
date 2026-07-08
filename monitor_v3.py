@@ -7,6 +7,9 @@ import config
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import random
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 DISCORD_WEBHOOK_URL = config.DISCORD_WEBHOOK_URL
 KEYWORDS = config.KEYWORDS
@@ -52,9 +55,6 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def get_session():
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # ⭐ 추가
-    
     session = requests.Session()
     session.headers.update({
         'User-Agent': random.choice(USER_AGENTS),
@@ -62,6 +62,7 @@ def get_session():
         'Accept': 'text/html,application/xhtml+xml',
         'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
+        'Referer': 'https://www.google.com/',
     })
     return session
 
@@ -107,119 +108,106 @@ def scrape_quasarzone():
         return "quasarzone", []
 
 def scrape_coolenjoy():
-    """쿨엔조이 크롤링 (HTML 파싱 - B 방식)"""
-    try:
-        print("    🔄 쿨엔조이 크롤링 중...")
-        session = get_session()
-        
-        # 타임아웃 증가 + SSL 검증 비활성화
-        resp = session.get(
-            SITES["coolenjoy"]["url"],
-            timeout=15,              # ⭐ 10 → 15초로 증가
-            allow_redirects=True,
-            verify=False             # ⭐ SSL 검증 비활성화
-        )
-        resp.encoding = 'utf-8'
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        posts = []
-        
-        # HTML 텍스트 추출
-        full_text = soup.get_text(separator='\n')
-        lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-        
-        # 게시물 찾기: "제목" + "가격" 패턴
-        i = 0
-        while i < len(lines) - 1:
-            current = lines[i]
-            next_line = lines[i + 1] if i + 1 < len(lines) else ""
-            
-            # 가격 판별: "숫자...원" 형식
-            is_price = (
-                '원' in next_line and 
-                any(c.isdigit() for c in next_line) and
-                len(next_line) < 50
-            )
-            
-            # 제목 판별
-            is_title = (
-                len(current) > 5 and 
-                len(current) < 200 and
-                not any(c.isdigit() for c in current[-5:])
-            )
-            
-            if is_title and is_price:
-                title = current
-                price = next_line
-                
-                # 제외 단어
-                if any(skip in title for skip in ['아이디로 검색', '건의함', '로그인', '글쓴이', '페이지', '포인트']):
-                    i += 1
-                    continue
-                
-                # 중복 제거
-                if not any(p['title'] == title for p in posts):
-                    posts.append({
-                        "title": title,
-                        "link": SITES["coolenjoy"]["url"],
-                        "site": "coolenjoy",
-                        "price": price
-                    })
-                
-                i += 2
-                continue
-            
-            i += 1
-
-        print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
-        return "coolenjoy", posts
-
-    except Exception as e:
-        print(f"    ⚠️  쿨엔조이 재시도 중...")
-        # 재시도 (2초 대기)
-        time.sleep(2)
+    """쿨엔조이 크롤링 (강화된 재시도)"""
+    for attempt in range(5):  # 5회 재시도
         try:
+            timeout = 15 + (attempt * 2)  # 점진적 증가: 15, 17, 19, 21, 23초
+            print(f"    🔄 쿨엔조이 크롤링 중 (시도 {attempt+1}/5, {timeout}초)...")
+
             session = get_session()
-            resp = session.get(
-                SITES["coolenjoy"]["url"],
-                timeout=20,
-                allow_redirects=True,
-                verify=False
-            )
+
+            # 다양한 방식 시도
+            if attempt < 2:
+                # 1-2차: verify=False
+                resp = session.get(
+                    SITES["coolenjoy"]["url"],
+                    timeout=timeout,
+                    allow_redirects=True,
+                    verify=False
+                )
+            elif attempt < 4:
+                # 3-4차: verify=True (정상 인증서)
+                resp = session.get(
+                    SITES["coolenjoy"]["url"],
+                    timeout=timeout,
+                    allow_redirects=True,
+                    verify=True
+                )
+            else:
+                # 5차: 전체 홈페이지 먼저 방문 후 재시도
+                session.get("https://coolenjoy.net/", timeout=5, verify=True)
+                time.sleep(1)
+                resp = session.get(
+                    SITES["coolenjoy"]["url"],
+                    timeout=timeout,
+                    allow_redirects=True,
+                    verify=True
+                )
+
             resp.encoding = 'utf-8'
             soup = BeautifulSoup(resp.text, 'html.parser')
+
             posts = []
-            
+
+            # 전체 텍스트 추출
             full_text = soup.get_text(separator='\n')
             lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-            
+
+            # 게시물 찾기 로직
             i = 0
             while i < len(lines) - 1:
                 current = lines[i]
                 next_line = lines[i + 1] if i + 1 < len(lines) else ""
-                
-                is_price = ('원' in next_line and any(c.isdigit() for c in next_line) and len(next_line) < 50)
-                is_title = (len(current) > 5 and len(current) < 200 and not any(c.isdigit() for c in current[-5:]))
-                
+
+                # 가격 판별
+                is_price = (
+                    '원' in next_line and 
+                    any(c.isdigit() for c in next_line) and
+                    len(next_line) < 50 and
+                    not any(skip in next_line for skip in ['검색', '페이지', '로그인'])
+                )
+
+                # 제목 판별
+                is_title = (
+                    len(current) > 5 and 
+                    len(current) < 200 and
+                    not any(c.isdigit() for c in current[-5:]) and
+                    not any(skip in current for skip in ['아이디로 검색', '건의함', '로그인', '페이지'])
+                )
+
                 if is_title and is_price:
                     title = current
-                    if any(skip in title for skip in ['아이디로 검색', '건의함', '로그인', '글쓴이', '페이지', '포인트']):
-                        i += 1
-                        continue
-                    
+
                     if not any(p['title'] == title for p in posts):
-                        posts.append({"title": title, "link": SITES["coolenjoy"]["url"], "site": "coolenjoy"})
+                        posts.append({
+                            "title": title,
+                            "link": SITES["coolenjoy"]["url"],
+                            "site": "coolenjoy",
+                        })
+
                     i += 2
                     continue
-                
-                i += 1
-            
-            print(f"    ✅ 쿨엔조이: {len(posts)}개 수집 (재시도)")
-            return "coolenjoy", posts
-        except:
-            print(f"    ❌ 쿨엔조이 실패")
-            return "coolenjoy", []
 
+                i += 1
+
+            if len(posts) > 0:
+                print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
+                return "coolenjoy", posts
+            else:
+                if attempt < 4:
+                    print(f"    ⏱️  0개 수집, 재시도 중...")
+                    time.sleep(2)
+                continue
+
+        except Exception as e:
+            if attempt < 4:
+                print(f"    ⏱️  연결 오류, 재시도 중...")
+                time.sleep(2)
+            else:
+                print(f"    ❌ 쿨엔조이 실패 (5회 재시도)")
+                return "coolenjoy", []
+
+    return "coolenjoy", []
 
 def check_keywords(title, keywords):
     for keyword in keywords:
@@ -274,7 +262,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 모니터링 v3.4 (HTML 파싱)")
+    print("🌐 모니터링 v3.5 (강화된 재시도)")
     print("="*60)
     print(f"키워드: {', '.join(KEYWORDS)}")
     print()
