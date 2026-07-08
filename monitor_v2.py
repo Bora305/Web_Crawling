@@ -63,7 +63,16 @@ def scrape_site_requests(site_name, site_config):
         soup = BeautifulSoup(resp.text, 'html.parser')
         
         posts = []
-        elements = soup.select(site_config["title_selector"])
+        
+        # 선택자가 없으면 모든 a 태그 찾기
+        if "title_selector" in site_config:
+            elements = soup.select(site_config["title_selector"])
+        else:
+            elements = soup.find_all('a', limit=30)
+        
+        if len(elements) == 0:
+            print(f"    ⚠️  선택자 미작동, 대체 검색 중...")
+            elements = soup.find_all('a', limit=30)
         
         for elem in elements[:20]:
             title = elem.get_text(strip=True)
@@ -76,7 +85,8 @@ def scrape_site_requests(site_name, site_config):
                 continue
             
             if link.startswith('/'):
-                link = "https://quasarzone.com" + link
+                base_url = site_config["url"].split('/bbs')[0]
+                link = base_url + link
             
             if any(p['link'] == link for p in posts):
                 continue
@@ -93,22 +103,29 @@ def scrape_site_requests(site_name, site_config):
 async def scrape_site_playwright(site_name, site_config):
     """Playwright를 사용한 크롤링 (coolenjoy용)"""
     try:
+        print(f"    {site_name} 크롤링 중 (Playwright)...")
+        
         async with async_playwright() as p:
-            print(f"    {site_name} 크롤링 중 (Playwright)...")
-            
             browser = await p.chromium.launch()
             page = await browser.new_page()
             
-            await page.goto(site_config["url"], timeout=15000)
-            await page.wait_for_timeout(2000)  # 2초 대기
+            # 타임아웃 8초로 단축
+            try:
+                await page.goto(site_config["url"], timeout=8000, wait_until="domcontentloaded")
+            except:
+                print(f"    ⚠️  페이지 로드 타임아웃, 부분 데이터로 계속...")
+            
+            # 1초만 대기
+            await page.wait_for_timeout(1000)
             
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
             posts = []
-            elements = soup.select(site_config["title_selector"])
+            elements = soup.select("a.na-subject")
             
             if len(elements) == 0:
+                print(f"    ⚠️  선택자 미작동, 모든 링크 검색 중...")
                 elements = soup.find_all('a', limit=30)
             
             for elem in elements[:20]:
