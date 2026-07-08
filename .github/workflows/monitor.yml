@@ -2,7 +2,7 @@ name: Market Monitor (7AM - Midnight)
 
 on:
   schedule:
-    - cron: '*/5 22-13 * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
