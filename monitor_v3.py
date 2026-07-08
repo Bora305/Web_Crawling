@@ -54,7 +54,6 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def get_session():
-    """세션 객체 생성 (쿠키 유지)"""
     session = requests.Session()
     session.headers.update({
         'User-Agent': random.choice(USER_AGENTS),
@@ -69,7 +68,6 @@ def get_session():
     return session
 
 def scrape_quasarzone():
-    """퀘이사존 크롤링"""
     try:
         print("    🔄 퀘이사존 크롤링 중...")
         session = get_session()
@@ -111,31 +109,22 @@ def scrape_quasarzone():
         print(f"    ❌ 퀘이사존 오류: {str(e)[:60]}")
         return "quasarzone", []
 
-def scrape_coolenjoy_cloudscraper():
-    """쿨엔조이 크롤링 (cloudscraper로 Cloudflare 우회)"""
+def scrape_coolenjoy():
     try:
         import cloudscraper
-
         print("    🔄 쿨엔조이 크롤링 중 (Cloudflare 우회)...")
-        scraper = cloudscraper.create_scraper()
 
-        resp = scraper.get(
-            SITES["coolenjoy"]["url"],
-            timeout=10,
-        )
+        scraper = cloudscraper.create_scraper()
+        resp = scraper.get(SITES["coolenjoy"]["url"], timeout=15)
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         posts = []
-
-        # 1순위: 특정 선택자
         elements = soup.select("a.na-subject")
 
-        # 2순위: 광범위 검색
         if len(elements) < 3:
             elements = soup.select("a[class*='subject']")
 
-        # 3순위: 모든 a 태그
         if len(elements) < 3:
             elements = soup.find_all('a', limit=50)
 
@@ -154,34 +143,28 @@ def scrape_coolenjoy_cloudscraper():
 
             posts.append({"title": title, "link": link, "site": "coolenjoy"})
 
-        print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
+        print(f"    ✅ 쿨엔조이: {len(posts)}개 수집 (cloudscraper)")
         return "coolenjoy", posts
 
     except ImportError:
-        print("    ⚠️  cloudscraper 미설치, requests로 재시도...")
+        print("    ⚠️  cloudscraper 없음, requests 폴백...")
         return scrape_coolenjoy_requests()
     except Exception as e:
-        print(f"    ❌ 쿨엔조이 cloudscraper 오류: {str(e)[:60]}")
-        print("    ⚠️  requests로 재시도...")
+        print(f"    ⚠️  cloudscraper 오류, requests 폴백... ({str(e)[:40]})")
         return scrape_coolenjoy_requests()
 
 def scrape_coolenjoy_requests():
-    """쿨엔조이 크롤링 (requests 폴백)"""
-
     for attempt in range(3):
         try:
             timeout = 10 - attempt
-            print(f"    🔄 쿨엔조이 크롤링 중 (requests, 시도 {attempt+1}/3, {timeout}초)...")
+            print(f"    🔄 쿨엔조이 크롤링 중 (requests, 시도 {attempt+1}/3)...")
 
             session = get_session()
-
-            # 홈페이지 방문
             try:
                 session.get("https://coolenjoy.net/", timeout=5)
             except:
                 pass
 
-            # 실제 페이지 요청
             resp = session.get(
                 SITES["coolenjoy"]["url"],
                 timeout=timeout,
@@ -219,15 +202,15 @@ def scrape_coolenjoy_requests():
                 return "coolenjoy", posts
             else:
                 if attempt < 2:
-                    print(f"    ⏱️  0개 수집, 재시도 중...")
+                    print(f"    ⏱️  재시도 중...")
                     time.sleep(1)
 
         except Exception as e:
             if attempt < 2:
-                print(f"    ⚠️  오류, 재시도 중...")
+                print(f"    ⏱️  재시도 중...")
                 time.sleep(1)
             else:
-                print(f"    ❌ 쿨엔조이 모든 시도 실패")
+                print(f"    ❌ 쿨엔조이 실패")
                 return "coolenjoy", []
 
     return "coolenjoy", []
@@ -253,7 +236,7 @@ def monitor_task():
             futures[executor.submit(scrape_quasarzone)] = "quasarzone"
 
         if "coolenjoy" in SITES:
-            futures[executor.submit(scrape_coolenjoy_cloudscraper)] = "coolenjoy"
+            futures[executor.submit(scrape_coolenjoy)] = "coolenjoy"
 
         for future in as_completed(futures):
             site_name, posts = future.result()
@@ -292,7 +275,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 웹페이지 모니터링 프로그램 v3.3 (Cloudflare 우회)")
+    print("🌐 웹페이지 모니터링 프로그램 v3.3")
     print("="*60)
     print(f"📌 감시 키워드: {', '.join(KEYWORDS)}")
     print(f"🌐 사이트 수: {len(SITES)}")
