@@ -104,107 +104,74 @@ def scrape_quasarzone():
         return "quasarzone", []
 
 def scrape_coolenjoy():
+    """쿨엔조이 크롤링 (HTML 파싱 - B 방식)"""
     try:
-        import cloudscraper
-        print("    🔄 쿨엔조이 크롤링 중 (Cloudflare)...")
+        print("    🔄 쿨엔조이 크롤링 중...")
+        session = get_session()
 
-        scraper = cloudscraper.create_scraper()
-        resp = scraper.get(SITES["coolenjoy"]["url"], timeout=15)
+        resp = session.get(
+            SITES["coolenjoy"]["url"],
+            timeout=10,
+            allow_redirects=True,
+        )
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         posts = []
-        elements = soup.select("a.na-subject")
 
-        if len(elements) < 3:
-            elements = soup.select("a[class*='subject']")
+        # HTML 텍스트 추출
+        full_text = soup.get_text(separator='\n')
+        lines = [line.strip() for line in full_text.split('\n') if line.strip()]
 
-        if len(elements) < 3:
-            elements = soup.find_all('a', limit=50)
+        # 게시물 찾기: "제목" + "가격" 패턴
+        i = 0
+        while i < len(lines) - 1:
+            current = lines[i]
+            next_line = lines[i + 1] if i + 1 < len(lines) else ""
 
-        for elem in elements[:30]:
-            title = elem.get_text(strip=True)
-            link = elem.get('href', '')
+            # 가격 판별: "숫자...원" 형식
+            is_price = (
+                '원' in next_line and 
+                any(c.isdigit() for c in next_line) and
+                len(next_line) < 50
+            )
 
-            if len(title) < 5 or not link:
+            # 제목 판별
+            is_title = (
+                len(current) > 5 and 
+                len(current) < 200 and
+                not any(c.isdigit() for c in current[-5:])
+            )
+
+            if is_title and is_price:
+                title = current
+                price = next_line
+
+                # 제외 단어
+                if any(skip in title for skip in ['아이디로 검색', '건의함', '로그인', '글쓴이', '페이지', '포인트']):
+                    i += 1
+                    continue
+
+                # 중복 제거
+                if not any(p['title'] == title for p in posts):
+                    posts.append({
+                        "title": title,
+                        "link": SITES["coolenjoy"]["url"],
+                        "site": "coolenjoy",
+                        "price": price
+                    })
+
+                i += 2
                 continue
 
-            if link.startswith('/'):
-                link = "https://coolenjoy.net" + link
-
-            if any(p['link'] == link for p in posts):
-                continue
-
-            posts.append({"title": title, "link": link, "site": "coolenjoy"})
+            i += 1
 
         print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
         return "coolenjoy", posts
 
-    except ImportError:
-        print("    ⚠️  cloudscraper 없음, requests 폴백...")
-        return scrape_coolenjoy_requests()
     except Exception as e:
-        print(f"    ⚠️  쿨엔조이 오류, requests 폴백...")
-        return scrape_coolenjoy_requests()
-
-def scrape_coolenjoy_requests():
-    for attempt in range(3):
-        try:
-            timeout = 12 - attempt
-            print(f"    🔄 쿨엔조이 시도 {attempt+1}/3...")
-
-            session = get_session()
-
-            try:
-                session.get("https://coolenjoy.net/", timeout=5)
-            except:
-                pass
-
-            resp = session.get(
-                SITES["coolenjoy"]["url"],
-                timeout=timeout,
-                allow_redirects=True,
-            )
-            resp.encoding = 'utf-8'
-            soup = BeautifulSoup(resp.text, 'html.parser')
-
-            posts = []
-            elements = soup.select("a.na-subject")
-
-            if len(elements) < 3:
-                elements = soup.select("a[class*='subject']")
-
-            if len(elements) < 3:
-                elements = soup.find_all('a', limit=50)
-
-            for elem in elements[:30]:
-                title = elem.get_text(strip=True)
-                link = elem.get('href', '')
-
-                if len(title) < 5 or not link:
-                    continue
-
-                if link.startswith('/'):
-                    link = "https://coolenjoy.net" + link
-
-                if any(p['link'] == link for p in posts):
-                    continue
-
-                posts.append({"title": title, "link": link, "site": "coolenjoy"})
-
-            if len(posts) > 0:
-                print(f"    ✅ 쿨엔조이: {len(posts)}개 수집")
-                return "coolenjoy", posts
-            else:
-                if attempt < 2:
-                    time.sleep(2)
-
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2)
-
-    print(f"    ❌ 쿨엔조이 실패")
-    return "coolenjoy", []
+        print(f"    ❌ 쿨엔조이 오류: {str(e)[:40]}")
+        return "coolenjoy", []
 
 def check_keywords(title, keywords):
     for keyword in keywords:
@@ -259,7 +226,7 @@ def monitor_task():
 
 if __name__ == "__main__":
     print("="*60)
-    print("🌐 모니터링 v3.3")
+    print("🌐 모니터링 v3.4 (HTML 파싱)")
     print("="*60)
     print(f"키워드: {', '.join(KEYWORDS)}")
     print()
