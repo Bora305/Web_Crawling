@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import os
 import config
+import time
 
 # ===== 설정 로드 =====
 DISCORD_WEBHOOK_URL = config.DISCORD_WEBHOOK_URL
@@ -48,28 +49,49 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def scrape_site(site_name, site_config):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(site_config["url"], headers=headers, timeout=20)
-        resp.encoding = 'utf-8'
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        posts = []
-        for elem in soup.select(site_config["title_selector"])[:15]:
-            title = elem.get_text(strip=True)
-            link = elem.get('href', '')
+    """재시도 로직이 있는 크롤링"""
+    max_retries = 2
+    
+    for attempt in range(max_retries):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            # timeout을 30초로 설정 (충분히 길게)
+            resp = requests.get(
+                site_config["url"], 
+                headers=headers, 
+                timeout=30
+            )
+            resp.encoding = 'utf-8'
+            soup = BeautifulSoup(resp.text, 'html.parser')
             
-            if link.startswith('/'):
-                base = site_config["url"].split('/bbs')[0] if '/bbs' in site_config["url"] else site_config["url"]
-                link = base + link
+            posts = []
+            for elem in soup.select(site_config["title_selector"])[:15]:
+                title = elem.get_text(strip=True)
+                link = elem.get('href', '')
+                
+                if link.startswith('/'):
+                    base = site_config["url"].split('/bbs')[0] if '/bbs' in site_config["url"] else site_config["url"]
+                    link = base + link
+                
+                if title and link:
+                    posts.append({"title": title, "link": link, "site": site_name})
             
-            if title and link:
-                posts.append({"title": title, "link": link, "site": site_name})
-        
-        return posts
-    except Exception as e:
-        print(f"❌ {site_name} 오류: {e}")
-        return []
+            return posts
+            
+        except requests.exceptions.Timeout:
+            print(f"  ⏱️  {site_name} 타임아웃 (시도 {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                time.sleep(2)  # 2초 기다렸다가 재시도
+                continue
+            else:
+                print(f"  ❌ {site_name} 최종 실패")
+                return []
+                
+        except Exception as e:
+            print(f"❌ {site_name} 오류: {e}")
+            return []
 
 def check_keywords(title, keywords):
     for keyword in keywords:
@@ -85,7 +107,9 @@ def monitor_task():
     alert_count = 0
     
     for site_name, site_config in SITES.items():
+        print(f"\n  🌐 {site_name} 크롤링 중...")
         posts = scrape_site(site_name, site_config)
+        print(f"  ✅ {site_name}: {len(posts)}개 게시물 수집")
         
         for post in posts:
             post_id = f"{site_name}_{post['link']}"
@@ -97,17 +121,17 @@ def monitor_task():
                 print(f"  🎯 발견: [{keyword}] {post['title'][:50]}")
                 
                 if send_discord_alert(site_name, post["title"], post["link"], keyword):
-                    print(f"     ✅ 알림 전송됨")
+                    print(f"     ✅ Discord 알림 전송됨")
                 else:
-                    print(f"     ❌ 알림 전송 실패")
+                    print(f"     ⚠️  Discord 알림 전송 실패")
                 
                 state["posts"].append(post_id)
                 alert_count += 1
     
     if alert_count == 0:
-        print("   새로운 항목 없음")
+        print(f"\n📊 새로운 키워드 항목 없음")
     else:
-        print(f"   총 {alert_count}개 항목 감지")
+        print(f"\n📊 총 {alert_count}개 항목 감지 및 알림 전송")
     
     save_state(state)
     print(f"[{now}] ✅ 모니터링 완료")
