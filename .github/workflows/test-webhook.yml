@@ -1,0 +1,36 @@
+name: Test Discord Webhook
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Test Webhook
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: |
+        python3 << 'EOF'
+        import requests
+        import json
+        
+        webhook_url = "${{ env.DISCORD_WEBHOOK }}"
+        
+        message = {
+            "content": "🧪 GitHub Actions 웹훅 테스트",
+            "embeds": [{
+                "title": "테스트 성공!",
+                "description": "웹훅이 정상 작동합니다.",
+                "color": 3066993,
+            }]
+        }
+        
+        response = requests.post(webhook_url, json=message)
+        
+        if response.status_code == 204:
+            print("✅ 웹훅 테스트 성공!")
+        else:
+            print(f"❌ 실패: {response.status_code}")
+        EOF
