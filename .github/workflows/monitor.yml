@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
+    env:
+      TZ: Asia/Seoul  # 한국 시간대로 설정
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
