@@ -52,6 +52,9 @@ def send_discord_alert(site_name, title, url, keyword):
         return False
 
 def get_session():
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # ⭐ 추가
+    
     session = requests.Session()
     session.headers.update({
         'User-Agent': random.choice(USER_AGENTS),
