@@ -1,12 +1,11 @@
-import os
-
 # config.py - 모니터링 설정 파일
 # 이 파일만 수정하면 됨!
 
 # ===== 필수 설정 =====
 
-# Discord 웹훅 URL (GitHub Secrets에서 로드됨)
-DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK', '')
+# Discord 웹훅 URL (필수!)
+# Discord 서버 → 채널 우클릭 → 웹훅 → URL 복사
+DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL_HERE"
 
 # 감시할 키워드 (하나 이상 필수)
 KEYWORDS = [
@@ -23,12 +22,17 @@ CHECK_INTERVAL = 5
 SITES = {
     "quasarzone": {
         "url": "https://quasarzone.com/bbs/qb_jijang",
-        "title_selector": "a.subject_link",  # 이미 올바름
+        "title_selector": "a.subject_link",
     },
     "coolenjoy": {
         "url": "https://coolenjoy.net/bbs/mart2",
-        "title_selector": "a.na-subject",
+        "title_selector": "a.title",
     },
+    # 추가 예시:
+    # "naver_cafe": {
+    #     "url": "https://cafe.naver.com/ArticleList.nhn?search.clubid=...",
+    #     "title_selector": "a.article",
+    # }
 }
 
 # ===== 선택 설정 =====
